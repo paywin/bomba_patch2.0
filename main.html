@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Super Futebol — Escolha seu jogador</title>
+  <link rel="stylesheet" href="css/bomba.css">
+
+</head>
+<body>
+  <div id="menuScreen" class="screen active">
+    <h1>Escolha seu jogador</h1>
+    <div class="choices">
+      <div class="choice" data-player="Messi">
+        <img src="./img/messi.png" alt="Messi" />
+        <div><strong>Messi</strong></div>
+        <div class="ability-desc">Habilidade: Dribles precisos - Ao ativar, pode driblar facilmente os oponentes por 5 segundos</div>
+      </div>
+      <div class="choice" data-player="Neymar">
+        <img src="./img/neymar.png" alt="Neymar" />
+        <div><strong>Neymar</strong></div>
+        <div class="ability-desc">Habilidade: Elástico - Aumenta a velocidade e agilidade por 5 segundos</div>
+      </div>
+      <div class="choice" data-player="Cristiano Ronaldo">
+        <img src="./img/cr7.png" alt="Cristiano Ronaldo" />
+        <div><strong>Cristiano Ronaldo</strong></div>
+        <div class="ability-desc">Habilidade: SIUUU! - Chutes super potentes e precisos por 5 segundos</div>
+      </div>
+      <div class="choice" data-player="Yuri Alberto">
+        <img src="./img/yuri.png" alt="Yuri Alberto" />
+        <div><strong>Yuri Alberto</strong></div>
+        <div class="ability-desc">Habilidade: Força Corinthiana - Imunidade a roubos de bola por 5 segundos</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="gameScreen" class="screen">
+    <canvas id="gameCanvas" width="860" height="520"></canvas>
+    <div class="hud">
+      <div class="panel">Você: <span id="playerName"></span></div>
+      <div class="panel">Aliado: <span id="allyName"></span></div>
+      <div class="panel">Inimigos: <span id="enemiesNames"></span></div>
+      <div class="panel">Placar: <span id="score">0 - 0</span> / 10</div>
+      <div class="panel">Força do chute: 
+        <div class="power-bar">
+          <div class="power-fill" id="powerFill"></div>
+        </div>
+      </div>
+      <div class="panel">Habilidade: 
+        <div class="ability-bar">
+          <div class="ability-fill" id="abilityFill"></div>
+        </div>
+        <div id="abilityText">0/2</div>
+      </div>
+      <button class="btn" id="abilityBtn" disabled>Habilidade (Q)</button>
+      <button class="btn" id="restartBtn">Reiniciar</button>
+    </div>
+    <div class="controls">
+      <div class="panel">Controles: WASD/Setas para mover, Espaço para chutar, E para passar/trocar de jogador, R para driblar, Q para habilidade</div>
+    </div>
+  </div>
+
+  <div id="cinematic" class="cinematic">
+    <div class="cinematic-text" id="cinematicText"></div>
+    <video id="cinematicVideo" class="cinematic-video">
+      <source src="" type="video/mp4">
+    </video>
+  </div>
+
+  <div id="endScreen" class="end-screen">
+    <div class="end-text" id="endText"></div>
+    <button class="btn" id="menuBtn">Voltar ao Menu</button>
+  </div>
+
+<script>
+(() => {
+  const menuScreen = document.getElementById('menuScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const choices = document.querySelectorAll('.choice');
+  const powerFill = document.getElementById('powerFill');
+  const abilityFill = document.getElementById('abilityFill');
+  const abilityText = document.getElementById('abilityText');
+  const abilityBtn = document.getElementById('abilityBtn');
+  const cinematic = document.getElementById('cinematic');
+  const cinematicText = document.getElementById('cinematicText');
+  const cinematicVideo = document.getElementById('cinematicVideo');
+  const endScreen = document.getElementById('endScreen');
+  const endText = document.getElementById('endText');
+  const menuBtn = document.getElementById('menuBtn');
+
+  // URLs dos vídeos das habilidades (substitua pelos seus vídeos)
+  const abilityVideos = {
+    'Messi': './img/messiv.mp4',
+    'Neymar': './img/neymav.mp4', 
+    'Cristiano Ronaldo': './img/cr7v.mp4',
+    'Yuri Alberto': './img/yuriv.mp4'
+  };
+
+  let selectedPlayer = null;
+  choices.forEach(c => {
+    c.addEventListener('click', () => {
+      selectedPlayer = c.dataset.player;
+      startGame(selectedPlayer);
+    });
+  });
+
+  function startGame(chosen){
+    menuScreen.classList.remove('active');
+    gameScreen.classList.add('active');
+    initGame(chosen);
+  }
+
+  function initGame(chosenPlayer){
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    // Definir jogadores disponíveis
+    const allPlayers = ['Messi', 'Neymar', 'Cristiano Ronaldo', 'Yuri Alberto'];
+    const enemies = allPlayers.filter(p => p !== chosenPlayer);
+    const ally = enemies.pop(); // O último será o aliado
+    const opponent1 = enemies[0];
+    const opponent2 = enemies[1];
+
+    let score = {player:0, opponent:0};
+    let keys = {};
+    let kickPower = 0;
+    let isChargingKick = false;
+    let chargeStartTime = 0;
+    let playerRotation = 0;
+    let allyRotation = 0;
+    let opponent1Rotation = 0;
+    let opponent2Rotation = 0;
+    let abilityCharge = 0;
+    let isAbilityActive = false;
+    let abilityActiveTime = 0;
+    let gameActive = true;
+    let playerGoalsForAbility = 0;
+    let opponentGoalsForAbility = 0;
+    let currentPlayer = 'player'; // player ou ally
+    let lastKicker = null; // Para controlar quem chutou por último
+    let kickCooldown = 0; // Cooldown para pegar a bola após chutar
+// Carregar imagens
+const playerImg = new Image();
+const allyImg = new Image();
+const opponent1Img = new Image();
+const opponent2Img = new Image();
+
+
+const imgMap = {
+  'Messi': './img/messi.png',
+  'Neymar': './img/neymar.png',
+  'Cristiano Ronaldo': './img/cr7.png',
+  'Yuri Alberto': './img/yuri.png'
+};
+
+playerImg.src = imgMap[chosenPlayer];
+allyImg.src = imgMap[ally];
+opponent1Img.src = imgMap[opponent1];
+opponent2Img.src = imgMap[opponent2];
+
+
+
+    // Configurações dos jogadores - VELOCIDADE REDUZIDA
+    const player = { 
+      x:80, y:H/2, w:80, h:80, speed:3, name:chosenPlayer,
+      dribbling: false, dribbleCooldown: 0, rotation: 0,
+      abilityReady: false, stunned: 0, spinAnimation: 0
+    };
+    
+    const allyPlayer = { 
+      x:150, y:H/2, w:80, h:80, speed:2.5, name: ally,
+      dribbling: false, dribbleCooldown: 0, rotation: 0,
+      stunned: 0, spinAnimation: 0
+    };
+    
+    const opponent1Player = { 
+      x:W-200, y:H/3, w:80, h:80, speed:2.5, name: opponent1,
+      dribbling: false, dribbleCooldown: 0, rotation: 0,
+      abilityReady: false, stunned: 0, spinAnimation: 0
+    };
+    
+    const opponent2Player = { 
+      x:W-200, y:2*H/3, w:80, h:80, speed:2.5, name: opponent2,
+      dribbling: false, dribbleCooldown: 0, rotation: 0,
+      abilityReady: false, stunned: 0, spinAnimation: 0
+    };
+    
+    const ball = { x:player.x+40, y:player.y+30, r:8, vx:0, vy:0, holder:'player' };
+    
+    // Gols com cores mais visíveis
+    const playerGoal = { x:10, y:H/2-80, w:15, h:160, color: '#ff3333' };
+    const opponentGoal = { x:W-25, y:H/2-80, w:15, h:160, color: '#3333ff' };
+
+    // Área do gol para contar gol automático
+    const playerGoalArea = { x:0, y:H/2-100, w:50, h:200 };
+    const opponentGoalArea = { x:W-50, y:H/2-100, w:50, h:200 };
+
+    // Atualizar interface
+    document.getElementById('playerName').textContent = player.name;
+    document.getElementById('allyName').textContent = allyPlayer.name;
+    document.getElementById('enemiesNames').textContent = `${opponent1Player.name} e ${opponent2Player.name}`;
+
+    function updateScore(){ 
+      document.getElementById('score').textContent = `${score.player} - ${score.opponent}`; 
+      
+      // Verificar se o jogo acabou - CORRIGIDO
+      if (score.player >= 10 || score.opponent >= 10) {
+        endGame();
+      }
+      
+      // Atualizar habilidade do jogador
+      updateAbilityUI();
+    }
+    
+   function updateAbilityUI() {
+  // Atualizar habilidade do jogador
+  playerGoalsForAbility = Math.floor(score.player / 2);
+  abilityCharge = Math.min(playerGoalsForAbility * 50, 100);
+  abilityFill.style.width = abilityCharge + '%';
+  abilityText.textContent = `${playerGoalsForAbility}/2`;
+  
+  if (abilityCharge >= 100) {
+    player.abilityReady = true;
+    abilityBtn.disabled = false;
+  } else {
+    player.abilityReady = false;
+    abilityBtn.disabled = true;
+  }
+  
+  // Atualizar habilidades dos oponentes
+  opponentGoalsForAbility = Math.floor(score.opponent / 2);
+  opponent1Player.abilityReady = (opponentGoalsForAbility >= 1);
+  opponent2Player.abilityReady = (opponentGoalsForAbility >= 2);
+}
+
+    function useAbility() {
+      if (!player.abilityReady || isAbilityActive) return;
+      
+      isAbilityActive = true;
+      abilityActiveTime = 0;
+      player.abilityReady = false;
+      playerGoalsForAbility = 0;
+      updateAbilityUI();
+      
+      // Mostrar vídeo da habilidade
+      showCinematicWithVideo(getAbilityCinematic(player.name), abilityVideos[player.name]);
+      
+      // Aplicar efeito da habilidade
+      applyAbilityEffect(player.name);
+    }
+    
+    function getAbilityCinematic(playerName) {
+      switch(playerName) {
+        case 'Messi':
+          return "Messi ativa o Modo Anjinho! Dribles precisos por 5 segundos!";
+        case 'Neymar':
+          return "Neymar ativa o Drible Elástico! Velocidade aumentada por 5 segundos!";
+        case 'Cristiano Ronaldo':
+          return "CR7 ativa o SIUUU! Chutes super potentes por 5 segundos!";
+        case 'Yuri Alberto':
+          return "Yuri Alberto ativa a Força Corinthiana! Imunidade a roubos por 5 segundos!";
+        default:
+          return "Habilidade especial ativada!";
+      }
+    }
+    
+    function applyAbilityEffect(playerName) {
+      const originalSpeed = player.speed;
+      
+      switch(playerName) {
+        case 'Messi':
+          // Aumenta a precisão dos dribles
+          player.dribbleCooldown = 10; // Reduz cooldown do drible
+          setTimeout(() => { 
+            player.dribbleCooldown = 30; 
+          }, 5000);
+          break;
+        case 'Neymar':
+          player.speed = 5; // Aumenta velocidade
+          setTimeout(() => { player.speed = originalSpeed; }, 5000);
+          break;
+        case 'Cristiano Ronaldo':
+          // Aumenta força dos chutes (será aplicado no chute)
+          setTimeout(() => { 
+            // Remove o efeito após 5 segundos
+          }, 5000);
+          break;
+        case 'Yuri Alberto':
+          // Imunidade a roubos (será verificado na física)
+          setTimeout(() => { 
+            // Remove o efeito após 5 segundos
+          }, 5000);
+          break;
+      }
+    }
+    
+    function useOpponentAbility(opponent) {
+  if (!opponent.abilityReady) return;
+  
+  opponent.abilityReady = false;
+  
+  // Atualizar contador de gols para habilidades
+  if (opponent === opponent1Player) {
+    opponentGoalsForAbility = Math.max(0, opponentGoalsForAbility - 1);
+  } else {
+    opponentGoalsForAbility = Math.max(0, opponentGoalsForAbility - 2);
+  }
+  
+  // Mostrar vídeo da habilidade do oponente
+  showCinematicWithVideo(getOpponentAbilityCinematic(opponent.name), abilityVideos[opponent.name]);
+  
+  // Aplicar efeito da habilidade do oponente
+  switch(opponent.name) {
+    case 'Messi':
+      opponent.dribbleCooldown = 10;
+      setTimeout(() => { opponent.dribbleCooldown = 30; }, 5000);
+      break;
+    case 'Neymar':
+      const originalSpeed = opponent.speed;
+      opponent.speed = 4;
+      setTimeout(() => { opponent.speed = originalSpeed; }, 5000);
+      break;
+    case 'Cristiano Ronaldo':
+      // Aumenta força dos chutes do oponente (será aplicado no chute)
+      setTimeout(() => { }, 5000);
+      break;
+    case 'Yuri Alberto':
+      // Imunidade a roubos para o oponente
+      setTimeout(() => { }, 5000);
+      break;
+  }
+}
+
+// Função para obter o texto da cinemática do oponente
+function getOpponentAbilityCinematic(playerName) {
+  switch(playerName) {
+    case 'Messi':
+      return `${playerName} ativa o Modo Anjinho! Dribles precisos por 5 segundos!`;
+    case 'Neymar':
+      return `${playerName} ativa o Drible Elástico! Velocidade aumentada por 5 segundos!`;
+    case 'Cristiano Ronaldo':
+      return `${playerName} ativa o SIUUU! Chutes super potentes por 5 segundos!`;
+    case 'Yuri Alberto':
+      return `${playerName} ativa a Força Corinthiana! Imunidade a roubos por 5 segundos!`;
+    default:
+      return `${playerName} ativa habilidade especial!`;
+  }
+}
+    
+    function showCinematicWithVideo(text, videoSrc) {
+      cinematicText.textContent = text;
+      cinematicVideo.src = videoSrc;
+      cinematicVideo.play();
+      cinematic.classList.add('active');
+      gameActive = false;
+      
+      // Fechar automaticamente após 8 segundos
+      setTimeout(() => {
+        hideCinematic();
+      }, 8000);
+    }
+    
+    function hideCinematic() {
+      cinematicVideo.pause();
+      cinematicVideo.currentTime = 0;
+      cinematic.classList.remove('active');
+      gameActive = true;
+    }
+    
+    function endGame() {
+      gameActive = false;
+      // CORREÇÃO: Verificar quem venceu corretamente
+      endText.textContent = score.player >= 10 ? "Você venceu!" : "Você perdeu!";
+      endScreen.classList.add('active');
+    }
+
+    updateScore();
+
+    function drawField(){
+      ctx.fillStyle = '#06341a'; 
+      ctx.fillRect(0,0,W,H);
+      
+      // Linha do meio
+      ctx.strokeStyle='rgba(255,255,255,0.08)'; 
+      ctx.beginPath(); 
+      ctx.moveTo(W/2,20); 
+      ctx.lineTo(W/2,H-20); 
+      ctx.stroke();
+      
+      // Gols com cores mais visíveis
+      ctx.fillStyle=playerGoal.color; 
+      ctx.fillRect(playerGoal.x, playerGoal.y, playerGoal.w, playerGoal.h);
+      ctx.fillStyle=opponentGoal.color; 
+      ctx.fillRect(opponentGoal.x, opponentGoal.y, opponentGoal.w, opponentGoal.h);
+      
+      // Áreas dos gols (para debug - pode remover depois)
+      ctx.strokeStyle='rgba(255,255,0,0.3)';
+      ctx.strokeRect(playerGoalArea.x, playerGoalArea.y, playerGoalArea.w, playerGoalArea.h);
+      ctx.strokeRect(opponentGoalArea.x, opponentGoalArea.y, opponentGoalArea.w, opponentGoalArea.h);
+    }
+
+    function drawPlayer(p, img, rotation = 0, isCurrentPlayer = false){ 
+      ctx.save();
+      ctx.translate(p.x + p.w/2, p.y + p.h/2);
+      
+      // Aplicar animação de giro se estiver driblando
+      if (p.spinAnimation > 0) {
+        ctx.rotate(p.spinAnimation);
+      } else {
+        ctx.rotate(rotation);
+      }
+      
+      // Efeito de habilidade ativa
+      if ((isAbilityActive && p === player) || 
+          (p === opponent1Player && p.abilityReady) || 
+          (p === opponent2Player && p.abilityReady)) {
+        ctx.shadowColor = '#ffff00';
+        ctx.shadowBlur = 15;
+      }
+      
+      // Efeito de atordoado
+      if (p.stunned > 0) {
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.fillRect(-p.w/2 - 5, -p.h/2 - 5, p.w + 10, p.h + 10);
+      }
+      
+      // Destaque para o jogador atual
+      if (isCurrentPlayer) {
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-p.w/2 - 2, -p.h/2 - 2, p.w + 4, p.h + 4);
+      }
+      
+      ctx.drawImage(img, -p.w/2, -p.h/2, p.w, p.h);
+      ctx.restore();
+      
+      // Efeito de driblar
+      if (p.dribbling) {
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(p.x + p.w/2, p.y + p.h/2, p.w/2 + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      
+      // Resetar alpha
+      ctx.globalAlpha = 1;
+    }
+
+    function drawBall(b){ 
+      ctx.fillStyle='#fff'; 
+      ctx.beginPath(); 
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); 
+      ctx.fill(); 
+    }
+
+    function movePlayer(){
+      if (!gameActive) return;
+      
+      // Atualizar cooldown do driblar
+      if (player.dribbleCooldown > 0) {
+        player.dribbleCooldown--;
+      }
+      if (allyPlayer.dribbleCooldown > 0) {
+        allyPlayer.dribbleCooldown--;
+      }
+
+      // Atualizar cooldown do chute
+      if (kickCooldown > 0) {
+        kickCooldown--;
+      }
+      
+      // Atualizar animações
+      updateAnimations();
+      
+      // Movimento do jogador atual (somente se não estiver atordoado)
+      if (currentPlayer === 'player' && player.stunned === 0) {
+        if(keys['arrowleft']||keys['a']) player.x-=player.speed;
+        if(keys['arrowright']||keys['d']) player.x+=player.speed;
+        if(keys['arrowup']||keys['w']) player.y-=player.speed;
+        if(keys['arrowdown']||keys['s']) player.y+=player.speed;
+        
+        // Limites do campo
+        player.x=Math.max(0,Math.min(W-80,player.x));
+        player.y=Math.max(0,Math.min(H-80,player.y));
+        
+        // Atualizar posição da bola se estiver com o jogador
+        if(ball.holder==='player'){ 
+          ball.x=player.x+40; 
+          ball.y=player.y+30; 
+        }
+      } else if (currentPlayer === 'ally' && allyPlayer.stunned === 0) {
+        // Movimento do aliado quando controlado
+        if(keys['arrowleft']||keys['a']) allyPlayer.x-=allyPlayer.speed;
+        if(keys['arrowright']||keys['d']) allyPlayer.x+=allyPlayer.speed;
+        if(keys['arrowup']||keys['w']) allyPlayer.y-=allyPlayer.speed;
+        if(keys['arrowdown']||keys['s']) allyPlayer.y+=allyPlayer.speed;
+        
+        // Limites do campo
+        allyPlayer.x=Math.max(0,Math.min(W-80,allyPlayer.x));
+        allyPlayer.y=Math.max(0,Math.min(H-80,allyPlayer.y));
+        
+        // Atualizar posição da bola se estiver com o aliado
+        if(ball.holder==='ally'){ 
+          ball.x=allyPlayer.x+30; 
+          ball.y=allyPlayer.y+30; 
+        }
+      }
+    }
+
+    function updateAnimations() {
+      // Atualizar animação de giro
+      if (player.spinAnimation > 0) {
+        player.spinAnimation += 0.5;
+        if (player.spinAnimation >= Math.PI * 2) {
+          player.spinAnimation = 0;
+        }
+      }
+      if (allyPlayer.spinAnimation > 0) {
+        allyPlayer.spinAnimation += 0.5;
+        if (allyPlayer.spinAnimation >= Math.PI * 2) {
+          allyPlayer.spinAnimation = 0;
+        }
+      }
+      if (opponent1Player.spinAnimation > 0) {
+        opponent1Player.spinAnimation += 0.5;
+        if (opponent1Player.spinAnimation >= Math.PI * 2) {
+          opponent1Player.spinAnimation = 0;
+        }
+      }
+      if (opponent2Player.spinAnimation > 0) {
+        opponent2Player.spinAnimation += 0.5;
+        if (opponent2Player.spinAnimation >= Math.PI * 2) {
+          opponent2Player.spinAnimation = 0;
+        }
+      }
+      
+      // Atualizar estado atordoado
+      if (player.stunned > 0) player.stunned--;
+      if (allyPlayer.stunned > 0) allyPlayer.stunned--;
+      if (opponent1Player.stunned > 0) opponent1Player.stunned--;
+      if (opponent2Player.stunned > 0) opponent2Player.stunned--;
+    }
+
+    function moveAlly(){
+      if (!gameActive || currentPlayer === 'ally' || allyPlayer.stunned > 0) return;
+      
+      // IA do aliado - ajuda o jogador
+      let targetX, targetY;
+      
+      if (ball.holder === 'player') {
+        // Posiciona-se para receber passe
+        targetX = player.x + 100;
+        targetY = player.y;
+      } else if (ball.holder === 'ally') {
+        // Vai em direção ao gol
+        targetX = opponentGoal.x - 50;
+        targetY = opponentGoal.y + opponentGoal.h/2;
+      } else {
+        // Vai atrás da bola
+        targetX = ball.x;
+        targetY = ball.y;
+      }
+      
+      const dx = targetX - (allyPlayer.x + allyPlayer.w/2);
+      const dy = targetY - (allyPlayer.y + allyPlayer.h/2);
+      
+      allyPlayer.x += dx * 0.03;
+      allyPlayer.y += dy * 0.03;
+      
+      // Limites do campo
+      allyPlayer.x=Math.max(0,Math.min(W-80,allyPlayer.x));
+      allyPlayer.y=Math.max(0,Math.min(H-80,allyPlayer.y));
+      
+      // Tentar roubar a bola (não pode pegar se foi quem chutou recentemente)
+      if(distance(allyPlayer.x+30, allyPlayer.y+30, ball.x, ball.y) < 30) {
+        if ((ball.holder === 'opponent1' || ball.holder === 'opponent2') && 
+            !(ball.holder === 'opponent1' ? opponent1Player.dribbling : opponent2Player.dribbling) &&
+            lastKicker !== 'ally') {
+          ball.holder='ally';
+        } else if (ball.holder === 'none' && lastKicker !== 'ally') {
+          ball.holder='ally';
+        }
+      }
+      
+      // Aliado chuta quando está com a bola e perto do gol (aumentada probabilidade)
+      if (ball.holder === 'ally' && 
+          distance(allyPlayer.x, allyPlayer.y, opponentGoal.x, opponentGoal.y) < 150) {
+        if (Math.random() < 0.02) {
+          kickAlly();
+        }
+      }
+      
+      // Aliado dribla ocasionalmente
+      if (ball.holder === 'ally' && Math.random() < 0.005 && allyPlayer.dribbleCooldown === 0) {
+        allyPlayer.dribbling = true;
+        allyPlayer.dribbleCooldown = 30;
+        
+        setTimeout(() => {
+          allyPlayer.dribbling = false;
+        }, 300);
+      }
+    }
+
+  function moveOpponents(){
+  if (!gameActive) return;
+  
+  // Mover oponente 1 (somente se não estiver atordoado)
+  if (opponent1Player.dribbleCooldown > 0) {
+    opponent1Player.dribbleCooldown--;
+  }
+  
+  if (opponent1Player.stunned === 0) {
+    let targetX, targetY;
+    
+    if (ball.holder === 'opponent1') {
+      targetX = playerGoal.x + 50;
+      targetY = playerGoal.y + playerGoal.h/2;
+    } else if (ball.holder === 'player' || ball.holder === 'ally') {
+      targetX = ball.x;
+      targetY = ball.y;
+    } else {
+      targetX = ball.x;
+      targetY = ball.y;
+    }
+    
+    const dx1 = targetX - (opponent1Player.x + opponent1Player.w/2);
+    const dy1 = targetY - (opponent1Player.y + opponent1Player.h/2);
+    
+    opponent1Player.x += dx1 * 0.025;
+    opponent1Player.y += dy1 * 0.025;
+    
+    // Limites do campo
+    opponent1Player.x=Math.max(0,Math.min(W-80,opponent1Player.x));
+    opponent1Player.y=Math.max(0,Math.min(H-80,opponent1Player.y));
+    
+    // Verificar se oponente está na área do gol para marcar automaticamente
+    if (ball.holder === 'opponent1' && isInGoalArea(opponent1Player, playerGoalArea)) {
+      score.opponent++;
+      reset();
+    }
+    
+    // Oponente 1 dribla ocasionalmente
+    if (ball.holder === 'opponent1' && Math.random() < 50 && opponent1Player.dribbleCooldown === 0) {
+      opponent1Player.dribbling = true;
+      opponent1Player.dribbleCooldown = 5;
+      
+      setTimeout(() => {
+        opponent1Player.dribbling = false;
+      }, 300);
+    }
+    
+    // Oponente 1 usa habilidade (COM CINEMÁTICA)
+    if (ball.holder === 'opponent1' && opponent1Player.abilityReady && Math.random() < 10) {
+      useOpponentAbility(opponent1Player);
+    }
+    
+    // Oponente 1 chuta quando está com a bola e perto do gol
+    if (ball.holder === 'opponent1' && 
+        distance(opponent1Player.x, opponent1Player.y, playerGoal.x, playerGoal.y) < 350) {
+      if (Math.random() < 30) {
+        kickOpponent(opponent1Player);
+      }
+    }
+  }
+  
+  // Atualizar posição da bola se estiver com o oponente 1
+  if(ball.holder==='opponent1'){ 
+    ball.x=opponent1Player.x+30; 
+    ball.y=opponent1Player.y+30; 
+  }
+  
+  // Mover oponente 2 (lógica similar)
+  if (opponent2Player.dribbleCooldown > 0) {
+    opponent2Player.dribbleCooldown--;
+  }
+  
+  if (opponent2Player.stunned === 0) {
+    let targetX, targetY;
+    
+    if (ball.holder === 'opponent2') {
+      targetX = playerGoal.x + 50;
+      targetY = playerGoal.y + playerGoal.h/2;
+    } else {
+      targetX = W/2 + 100;
+      targetY = ball.y;
+    }
+    
+    const dx2 = targetX - (opponent2Player.x + opponent2Player.w/2);
+    const dy2 = targetY - (opponent2Player.y + opponent2Player.h/2);
+    
+    opponent2Player.x += dx2 * 0.02;
+    opponent2Player.y += dy2 * 0.02;
+    
+    // Limites do campo
+    opponent2Player.x=Math.max(0,Math.min(W-80,opponent2Player.x));
+    opponent2Player.y=Math.max(0,Math.min(H-80,opponent2Player.y));
+    
+    // Verificar se oponente está na área do gol para marcar automaticamente
+    if (ball.holder === 'opponent2' && isInGoalArea(opponent2Player, playerGoalArea)) {
+      score.opponent++;
+      reset();
+    }
+    
+    // Oponente 2 dribla ocasionalmente
+    if (ball.holder === 'opponent2' && Math.random() < 30 && opponent2Player.dribbleCooldown === 0) {
+      opponent2Player.dribbling = true;
+      opponent2Player.dribbleCooldown = 8;
+      
+      setTimeout(() => {
+        opponent2Player.dribbling = false;
+      }, 300);
+    }
+    
+    // Oponente 2 chuta quando está com a bola e perto do gol
+    if (ball.holder === 'opponent2' && 
+        distance(opponent2Player.x, opponent2Player.y, playerGoal.x, playerGoal.y) < 250) {
+      if (Math.random() < 30) {
+        kickOpponent(opponent2Player);
+      }
+    }
+    
+    // Oponente 2 usa habilidade (COM CINEMÁTICA)
+    if (ball.holder === 'opponent2' && opponent2Player.abilityReady && Math.random() < 10) {
+      useOpponentAbility(opponent2Player);
+    }
+  }
+  
+  // Atualizar posição da bola se estiver com o oponente 2
+  if(ball.holder==='opponent2'){ 
+    ball.x=opponent2Player.x+30; 
+    ball.y=opponent2Player.y+30; 
+  }
+}
+
+    function distance(x1,y1,x2,y2){
+      return Math.hypot(x2-x1,y2-y1);
+    }
+
+    function isInGoalArea(player, goalArea) {
+      return player.x >= goalArea.x && 
+             player.x <= goalArea.x + goalArea.w &&
+             player.y >= goalArea.y && 
+             player.y <= goalArea.y + goalArea.h;
+    }
+
+ function physics(){
+  if (!gameActive) return;
+  
+  if(ball.holder==='none'){
+    ball.x+=ball.vx; 
+    ball.y+=ball.vy;
+    ball.vy+=0.08; // Gravidade
+    
+    // Colisão com o chão
+    if(ball.y+ball.r > H-8){
+      ball.y = H-8-ball.r;
+      ball.vy *= -0.4;
+      ball.vx *= 0.9;
+    }
+    
+    // Colisão com o teto
+    if(ball.y-ball.r < 10){
+      ball.y = 10+ball.r;
+      ball.vy *= -0.4;
+      ball.vx *= 0.9;
+    }
+    
+    // Colisão com as paredes laterais
+    if(ball.x-ball.r < 0 || ball.x+ball.r > W){
+      ball.vx *= -0.7;
+      ball.x = Math.max(ball.r, Math.min(W-ball.r, ball.x));
+    }
+    
+    // Gol do oponente (jogador marca)
+    if(ball.x-ball.r <= playerGoal.x+playerGoal.w && 
+       ball.y > playerGoal.y && ball.y < playerGoal.y+playerGoal.h) {
+      score.opponent++;
+      reset();
+    }
+    
+    // Gol do jogador (oponente marca)
+    if(ball.x+ball.r >= opponentGoal.x && 
+       ball.y > opponentGoal.y && ball.y < opponentGoal.y+opponentGoal.h) {
+      score.player++;
+      reset();
+    }
+  }
+  
+  // Verificar se alguém pode pegar a bola (exceto quem chutou)
+  if (ball.holder === 'none') {
+    const players = [
+      { player: player, holder: 'player', name: 'player' },
+      { player: allyPlayer, holder: 'ally', name: 'ally' },
+      { player: opponent1Player, holder: 'opponent1', name: 'opponent1' },
+      { player: opponent2Player, holder: 'opponent2', name: 'opponent2' }
+    ];
+    
+    for (const { player: p, holder: h, name: playerName } of players) {
+      // Verificar se está perto da bola e não é quem chutou por último
+      if (distance(p.x + p.w/2, p.y + p.h/2, ball.x, ball.y) < 30 && 
+          lastKicker !== playerName) {
+        
+        // Verificar se o jogador não está atordoado
+        if (p.stunned === 0) {
+          ball.holder = h;
+          break; // Só uma pessoa pega a bola por vez
+        }
+      }
+    }
+  }
+  
+  // FÍSICA DE ROUBO DE BOLA - QUALQUER JOGADOR PODE ROUBAR DE QUALQUER OUTRO
+  if (ball.holder !== 'none') {
+    const currentHolder = getPlayerByHolder(ball.holder);
+    const allPlayers = [
+      { player: player, holder: 'player', name: 'player' },
+      { player: opponent1Player, holder: 'opponent1', name: 'opponent1' },
+      { player: opponent2Player, holder: 'opponent2', name: 'opponent2' }
+    ];
+    
+    for (const { player: potentialRobber, holder: robberHolder, name: robberName } of allPlayers) {
+      // Pular o próprio dono da bola
+      if (robberHolder === ball.holder) continue;
+      
+      // Verificar se está perto o suficiente para roubar
+      if (distance(potentialRobber.x + potentialRobber.w/2, potentialRobber.y + potentialRobber.h/2,
+                  currentHolder.x + currentHolder.w/2, currentHolder.y + currentHolder.h/2) < 40) {
+        
+        // Verificar condições para roubar a bola
+        if (potentialRobber.stunned === 0 && // Não está atordoado
+            !currentHolder.dribbling && // Dono da bola não está driblando
+            lastKicker !== robberName && // Não chutou recentemente
+            !hasImmunity(currentHolder)) { // Dono da bola não tem imunidade
+          
+          // Roubar a bola!
+          ball.holder = robberHolder;
+          
+          // Efeito visual de roubo
+          potentialRobber.spinAnimation = 0.1;
+          setTimeout(() => {
+            potentialRobber.spinAnimation = 0;
+          }, 300);
+          
+          break; // Só um roubo por vez
+        }
+      }
+    }
+  }
+  
+  // Verificar se jogador está na área do gol adversário para marcar automaticamente
+  if ((ball.holder === 'player' || ball.holder === 'ally') && 
+      isInGoalArea(ball.holder === 'player' ? player : allyPlayer, opponentGoalArea)) {
+    score.player++;
+    reset();
+  }
+}
+
+// Função auxiliar para obter o jogador pelo holder
+function getPlayerByHolder(holder) {
+  switch(holder) {
+    case 'player': return player;
+    case 'ally': return allyPlayer;
+    case 'opponent1': return opponent1Player;
+    case 'opponent2': return opponent2Player;
+    default: return player;
+  }
+}
+
+// Função para verificar se o jogador tem imunidade (Yuri Alberto)
+function hasImmunity(playerObj) {
+  if (playerObj === player && isAbilityActive && player.name === 'Yuri Alberto') {
+    return true;
+  }
+  if ((playerObj === opponent1Player || playerObj === opponent2Player) && 
+      playerObj.abilityReady && playerObj.name === 'Yuri Alberto') {
+    return true;
+  }
+  return false;
+}
+
+    function kick(){
+      const current = currentPlayer === 'player' ? player : allyPlayer;
+      const holder = currentPlayer === 'player' ? 'player' : 'ally';
+      
+      if(ball.holder===holder){
+        ball.holder='none';
+        
+        // Calcular força baseada no tempo de carregamento (máximo 2 segundos)
+        const chargeTime = Math.min(Date.now() - chargeStartTime, 1000);
+        const power = chargeTime / 1000;
+        
+        // Velocidade base + força aplicada
+        const baseSpeed = 5;
+        const maxAdditionalSpeed = 10;
+        
+        // Aumentar força se Cristiano Ronaldo tem habilidade ativa
+        const abilityMultiplier = (isAbilityActive && player.name === 'Cristiano Ronaldo') ? 1.5 : 1;
+        
+        // Direção do chute baseada na posição do jogador
+        ball.vx = (baseSpeed + (maxAdditionalSpeed * power * abilityMultiplier)) + (Math.random() * 2 - 1);
+        ball.vy = -3 - (3 * power * abilityMultiplier) + (Math.random() * 2 - 1);
+        
+        // Registrar quem chutou e ativar cooldown
+        lastKicker = holder;
+        kickCooldown = 60; // 1 segundo (60 frames)
+        
+        // Resetar estado de carregamento
+        isChargingKick = false;
+        kickPower = 0;
+        powerFill.style.width = '0%';
+      }
+    }
+    
+    function passAndSwitch(){
+      const current = currentPlayer === 'player' ? player : allyPlayer;
+      const holder = currentPlayer === 'player' ? 'player' : 'ally';
+      const target = currentPlayer === 'player' ? allyPlayer : player;
+      
+      if(ball.holder===holder){
+        // Encontrar o outro jogador
+        const distToTarget = distance(current.x, current.y, target.x, target.y);
+        
+        if (distToTarget < 300) {
+          ball.holder='ally';
+          
+          // Calcular direção para o outro jogador
+          const dx = target.x - current.x;
+          const dy = target.y - current.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          
+          // Velocidade do passe
+          ball.vx = (dx/dist) * 8;
+          ball.vy = (dy/dist) * 8;
+          
+          // Registrar quem chutou e ativar cooldown
+          lastKicker = holder;
+          kickCooldown = 60; // 1 segundo (60 frames)
+          
+          // Trocar de jogador automaticamente após o passe
+          currentPlayer = currentPlayer === 'player' ? 'ally' : 'player';
+        }
+      }
+    }
+    
+    function kickAlly(){
+      if(ball.holder==='ally'){
+        ball.holder='none';
+        ball.vx = 7 + (Math.random() * 2 - 1);
+        ball.vy = -4 + (Math.random() * 2 - 1);
+        
+        // Registrar quem chutou e ativar cooldown
+        lastKicker = 'ally';
+        kickCooldown = 60; // 1 segundo (60 frames)
+      }
+    }
+    
+    function kickOpponent(opponent){
+      if(ball.holder=== (opponent === opponent1Player ? 'opponent1' : 'opponent2')){
+        ball.holder='none';
+        
+        // Aumentar força se Cristiano Ronaldo tem habilidade ativa
+        const abilityMultiplier = (opponent.abilityReady && opponent.name === 'Cristiano Ronaldo') ? 1.5 : 1;
+        
+        // Direção para o gol do jogador
+        const dx = playerGoal.x - opponent.x;
+        const dy = (playerGoal.y + playerGoal.h/2) - opponent.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        ball.vx = (dx/dist) * 7 * abilityMultiplier + (Math.random() * 2 - 1);
+        ball.vy = (dy/dist) * 7 * abilityMultiplier + (Math.random() * 2 - 1);
+        
+        // Registrar quem chutou e ativar cooldown
+        lastKicker = opponent === opponent1Player ? 'opponent1' : 'opponent2';
+        kickCooldown = 60; // 1 segundo (60 frames)
+      }
+    }
+    
+    function dribble() {
+      const current = currentPlayer === 'player' ? player : allyPlayer;
+      
+      if (current.dribbleCooldown === 0) {
+        current.dribbling = true;
+        current.dribbleCooldown = 30;
+        current.spinAnimation = 0.1; // Inicia animação de giro
+        
+        // Verificar se há oponentes próximos para atordoar e fazer soltar a bola
+        const opponents = [opponent1Player, opponent2Player];
+        opponents.forEach(opponent => {
+          if (distance(current.x, current.y, opponent.x, opponent.y) < 50) {
+            opponent.stunned = 90; // 1.5 segundos (90 frames)
+            
+            // Se o oponente estava com a bola, ele solta
+            if (ball.holder === (opponent === opponent1Player ? 'opponent1' : 'opponent2')) {
+              ball.holder = 'none';
+              // Dar um pequeno impulso na bola
+              ball.vx = (Math.random() - 0.5) * 3;
+              ball.vy = -2;
+            }
+          }
+        });
+        
+        setTimeout(() => {
+          current.dribbling = false;
+        }, 300);
+      }
+    }
+
+    function reset(){
+      player.x=80;
+      player.y=H/2;
+      allyPlayer.x=150;
+      allyPlayer.y=H/2;
+      opponent1Player.x=W-200;
+      opponent1Player.y=H/3;
+      opponent2Player.x=W-200;
+      opponent2Player.y=2*H/3;
+      ball.x = player.x+40;
+      ball.y = player.y+30;
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.holder='player';
+      isChargingKick = false;
+      kickPower = 0;
+      powerFill.style.width = '0%';
+      currentPlayer = 'player';
+      lastKicker = null;
+      kickCooldown = 0;
+      
+      // Resetar estados
+      player.stunned = 0;
+      allyPlayer.stunned = 0;
+      opponent1Player.stunned = 0;
+      opponent2Player.stunned = 0;
+      player.spinAnimation = 0;
+      allyPlayer.spinAnimation = 0;
+      opponent1Player.spinAnimation = 0;
+      opponent2Player.spinAnimation = 0;
+      
+      updateScore();
+    }
+
+    function gameLoop(){
+      if (!gameActive) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      
+      ctx.clearRect(0,0,W,H);
+      drawField();
+      movePlayer();
+      moveAlly();
+      moveOpponents();
+      physics();
+      
+      // Atualizar barra de força durante o carregamento
+      if (isChargingKick) {
+        const chargeTime = Math.min(Date.now() - chargeStartTime, 2000);
+        kickPower = chargeTime / 2000;
+        powerFill.style.width = (kickPower * 100) + '%';
+      }
+      
+      // Atualizar tempo da habilidade ativa
+      if (isAbilityActive) {
+        abilityActiveTime++;
+        if (abilityActiveTime > 300) { // 5 segundos
+          isAbilityActive = false;
+          abilityActiveTime = 0;
+        }
+      }
+      
+      drawPlayer(player, playerImg, playerRotation, currentPlayer === 'player');
+      drawPlayer(allyPlayer, allyImg, allyRotation, currentPlayer === 'ally');
+      drawPlayer(opponent1Player, opponent1Img, opponent1Rotation);
+      drawPlayer(opponent2Player, opponent2Img, opponent2Rotation);
+      drawBall(ball);
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Controles
+    window.addEventListener('keydown', e => {
+      const key = e.key.toLowerCase();
+      keys[key] = true;
+      
+      if(key === ' ' && ((ball.holder === 'player' && currentPlayer === 'player') || 
+                         (ball.holder === 'ally' && currentPlayer === 'ally')) && !isChargingKick){
+        isChargingKick = true;
+        chargeStartTime = Date.now();
+        kickPower = 0;
+      }
+      
+      if(key === 'q'){
+        useAbility();
+      }
+      
+      if(key === 'r'){
+        dribble();
+      }
+      
+      if(key === 'e'){
+        passAndSwitch();
+      }
+    });
+    
+    window.addEventListener('keyup', e => {
+      const key = e.key.toLowerCase();
+      keys[key] = false;
+      
+      if(key === ' ' && isChargingKick){
+        kick();
+      }
+    });
+    
+    abilityBtn.addEventListener('click', useAbility);
+    
+    document.getElementById('restartBtn').addEventListener('click', () => {
+      score = {player:0, opponent:0};
+      playerGoalsForAbility = 0;
+      opponentGoalsForAbility = 0;
+      reset();
+    });
+    
+    menuBtn.addEventListener('click', () => {
+      endScreen.classList.remove('active');
+      gameScreen.classList.remove('active');
+      menuScreen.classList.add('active');
+    });
+
+    gameLoop();
+  }
+})();
+</script>
+</body>
+</html>
